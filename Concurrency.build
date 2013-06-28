@@ -1,0 +1,166 @@
+﻿<?xml version="1.0"?>
+
+<project name="Concurrency" default="all" basedir=".">
+
+	<!-- ============================================================ 
+		Top level build target
+	============================================================ -->
+	
+	<target name="all" depends="init, build, analyze, test, deploy"/>
+	
+	<!-- ============================================================ 
+		Target to initialise properties used by all targets
+	============================================================ -->
+	<target name="init">
+		<property name="config" value="debug" overwrite="false"/>
+
+    <!-- 
+      Project specific properties
+      If using this file as a template for other build scripts then modifying these properties 
+      should be sufficient to get the build working.
+    -->
+    <property name="solutionFile" value="Concurrency.sln"/>
+    <property name="outputDir" value=".\Concurrency\bin\${config}"/>
+    <property name="outputAssemblyName" value="Concurrency.dll"/>
+    <property name="outputAssembly" value="${outputDir}\${outputAssemblyName}"/>
+
+    <property name="testOutputDir" value=".\Concurrency.Tests\bin\${config}"/>
+    <property name="testOutputAssemblyName" value="Concurrency.Tests.dll"/>
+    <property name="testOutputAssembly" value="${testOutputDir}\${testOutputAssemblyName}"/>
+
+    <property name="deploymentPackageName" value="Concurrency"/>
+
+    <property name="toolsHome" value="..\BuildTools"/> <!-- Relative path to tools directory -->    
+
+    <property name="coverageFilter" value="+[Concurrency]*"/> <!-- Opencover filter to specify code to be analysed -->
+
+    <property name="test.MinimumCoverage" value ="100"/> <!-- Opencover minimum coverage (default 100%) -->
+    
+    <!-- Common properties -->
+    <property name="testResultsDir" value=".\TestResults"/>
+    <property name="coverageResultsDir" value="${testResultsDir}\CoverageReports"/>
+    <property name="deployDir" value=".\Deploy"/>
+
+    <property name="msbuildCmd" value="${framework::get-framework-directory('net-4.0')}/msbuild.exe"/>
+    
+    <property name="staticAnalysisHome" value="${toolsHome}\StaticAnalysisTools"/>
+    <!-- 
+      FailMinimumRecommendedRules.ruleset is a copy of MinimumRecommendedRules.ruleset with all rules set
+      to Error rather than Warning (so that any analysis failure causes a build failure).
+    -->
+    <property name="fxcopRules" value="${staticAnalysisHome}\Rule Sets\FailMinimumRecommendedRules.ruleset"/>
+    <property name="fxcopCmd" value="${staticAnalysisHome}\FxCop\FxCopCmd.exe"/>    
+    
+    <property name="opencoverCmd" value=".${toolsHome}\OpenCover.4.0.301\OpenCover.Console.exe"/>
+    <property name="nunitCmd" value="${toolsHome}\NUnit-2.6.0.12051\bin\nunit-console.exe"/>
+    <property name="reportGeneratorCmd" value="${toolsHome}\ReportGenerator.1.4.1.0\ReportGenerator.exe"/>
+  </target>
+	
+	<!-- ============================================================ 
+		Target to build the components
+	============================================================ -->
+	<target name="build" depends="init">
+
+    <exec program="${msbuildCmd}" >
+      <arg value="${solutionFile}" />
+      <arg value="/p:configuration=${config}" />
+      <arg value="/t:Rebuild" />
+      <!-- Ensure code analysis conditional symbol is defined so that [SuppressMessage] attribute are included in output -->
+      <arg value='/p:DefineConstants="TRACE;DEBUG;CODE_ANALYSIS"'/>
+    </exec>
+        
+  </target>
+
+  <!-- ============================================================ 
+		Target to run static analysis on compiled code.
+	============================================================ -->
+  <target name="analyze" depends="build">
+
+    <mkdir dir="${testResultsDir}" unless="${directory::exists(testResultsDir)}"/>
+
+    <exec program="${fxcopCmd}">
+      <arg value="/console"/>
+      <arg value='/ruleset:="${fxcopRules}"'/>
+      <arg value="/out:${testResultsDir}\StaticAnalysisResults.html"/>
+      <arg value="/applyoutxsl"/>
+      <arg value="/forceoutput"/>
+      <arg value="/file=${outputAssembly}"/>
+    </exec>
+
+  </target>
+
+  <!-- ============================================================ 
+		Target to run tests and generate coverage reports.
+	============================================================ -->
+  <target name="test" depends="build">
+
+    <mkdir dir="${testResultsDir}" unless="${directory::exists(testResultsDir)}"/>
+    <mkdir dir="${coverageResultsDir}" unless="${directory::exists(coverageResultsDir)}"/>
+    
+    <!-- Run coverage tool -->
+    <exec program="${opencoverCmd}">
+      <arg value="-target:${nunitCmd}"/>
+      <arg value='-targetargs:"/nologo /noshadow ${testOutputAssemblyName}"'/>
+      <arg value='-targetdir:"${testOutputDir}"'/>
+      <arg value="-log:All"/>
+      <arg value="-register"/>
+      <arg value='-filter:"${coverageFilter}"'/>
+      <arg value="-output:${testResultsDir}\CoverageResults.xml"/>
+    </exec>
+    
+    <!-- Generate coverage reports -->
+    <exec program="${reportGeneratorCmd}">
+      <arg value="-reports:${testResultsDir}\CoverageResults.xml"/>
+      <arg value="-reporttypes:Html;HtmlSummary"/>
+      <arg value="-targetdir:${coverageResultsDir}"/>
+    </exec>
+
+    <!-- Check for any test failures -->
+    <xmlpeek file="${testOutputDir}\TestResult.xml"
+             xpath="//test-results/@failures"
+             property="test.NumFailures" />
+    <fail if="${int::parse(test.NumFailures) &gt; 0}" message="${test.NumFailures} unit tests failed!!!"/>
+
+    <!-- Check for sufficient code coverage -->
+    <xmlpeek file="${testResultsDir}\CoverageResults.xml"
+             xpath="count(//SequencePoint)"
+             property="test.SequencePoints" />
+    <xmlpeek file="${testResultsDir}\CoverageResults.xml"
+             xpath="count(//SequencePoint[@vc!='0'])"
+             property="test.CoveredSequencePoints" />
+    <property name="test.Coverage" value="${double::parse(test.CoveredSequencePoints) / double::parse(test.SequencePoints) * 100}" />
+    <fail if="${double::parse(test.Coverage) &lt; double::parse(test.MinimumCoverage)}"
+          message="The solution currently has ${math::round(double::parse(test.Coverage))}% coverage, less than the required  ${math::round(double::parse(test.MinimumCoverage))}%" />
+
+
+  </target>
+
+  <!-- ============================================================ 
+		Target to generate deployment components
+	============================================================ -->
+  <target name="deploy" depends="build">
+
+    <!-- Delete and re-create deployment directory -->
+    <delete dir="${deployDir}" includeemptydirs="true" if="${directory::exists(deployDir)}"/>
+    <mkdir dir="${deployDir}"/>
+
+    <!-- Deploy the taskexec console application and supporting files -->
+    <copy todir="${deployDir}\${deploymentPackageName}">
+      <fileset basedir="${outputDir}" >
+        <include name="*.dll" />
+        <include name="*.exe" />
+        <include name="*.pdb" />
+      </fileset>
+    </copy>
+
+
+    <!-- Zip all the files -->
+    <zip zipfile=".${deployDir}\${deploymentPackageName}.zip"  includeemptydirs="true" >
+      <fileset basedir="${deployDir}\${deploymentPackageName}">
+        <include name="**/*"/>
+      </fileset>
+    </zip>
+
+  </target>
+
+</project>
