@@ -220,6 +220,38 @@ namespace Concurrency.Tests
         }
 
         /// <summary>
+        /// Test the <see cref="ReadCopyUpdateList{T}.Find"/> method
+        /// </summary>
+        [Test]
+        public void TestFind()
+        {
+            // Arrange
+            ReadCopyUpdateList<int> list = new ReadCopyUpdateList<int>();
+
+            // Assume
+            AssertThrow<ArgumentNullException>(() => list.FindFirst(null));
+
+            // Act
+            list.AddValues(0, 1, 2, 3, 4, 3, 5);
+            ReadCopyUpdateListNode<int> first3 = list.Find(3);
+            bool removedFirst3 = list.Remove(3);
+            ReadCopyUpdateListNode<int> second3 = list.Find(3);
+            ReadCopyUpdateListNode<int> first72 = list.Find(72);
+
+            // Assert            
+            Assert.IsNotNull(first3);
+            Assert.AreEqual(3, first3.Value);
+            Assert.IsNotNull(first3.Next);
+            Assert.AreEqual(4, first3.Next.Value);
+            Assert.IsTrue(removedFirst3);
+            Assert.IsNotNull(second3);
+            Assert.AreEqual(3, second3.Value);
+            Assert.IsNotNull(second3.Next);
+            Assert.AreEqual(5, second3.Next.Value);
+            Assert.IsNull(first72);
+        }
+
+        /// <summary>
         /// Test the <see cref="ReadCopyUpdateList{T}.FindFirst"/> method
         /// </summary>
         [Test]
@@ -233,10 +265,10 @@ namespace Concurrency.Tests
 
             // Act
             list.AddValues(0, 1, 2, 3, 4, 3, 5);
-            ReadCopyUpdateListNode<int> first3 = list.FindFirst((n) => n == 3);
+            ReadCopyUpdateListNode<int> first3 = list.FindFirst(n => n == 3);
             bool removedFirst3 = list.Remove(3);
-            ReadCopyUpdateListNode<int> second3 = list.FindFirst((n) => n == 3);
-            ReadCopyUpdateListNode<int> first72 = list.FindFirst((n) => n == 72);
+            ReadCopyUpdateListNode<int> second3 = list.FindFirst(n => n == 3);
+            ReadCopyUpdateListNode<int> first72 = list.FindFirst(n => n == 72);
 
             // Assert            
             Assert.IsNotNull(first3);
@@ -291,10 +323,10 @@ namespace Concurrency.Tests
             list.AddValues(0, 1, 2, 3, 4);
             int count = 0;
 
+            // Act
             using (IEnumerator<int> enumerator = list.GetEnumerator())
             {
 
-                // Act
                 enumerator.Reset();                
                 while (enumerator.MoveNext())
                 {
@@ -333,7 +365,9 @@ namespace Concurrency.Tests
                 count++;
             }
             AssertThrow<InvalidOperationException>(() => current = enumerator.Current); // Can't access current after end of enum
+            // ReSharper disable ImplicitlyCapturedClosure
             AssertThrow<InvalidOperationException>(() => enumerator.MoveNext());
+            // ReSharper restore ImplicitlyCapturedClosure
 
             // Assert
             Assert.AreEqual(5, count);

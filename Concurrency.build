@@ -3,10 +3,14 @@
 <project name="Concurrency" default="all" basedir=".">
 
 	<!-- ============================================================ 
-		Top level build target
+		Build script for the Concurrency solution.
+    
+    NOTE: This script relies on build tools that can be found here:
+    https://github.com/LeeSanderson/BuildTools/
+    (see the toolsHome property in the "init" target below for more info)
 	============================================================ -->
 	
-	<target name="all" depends="init, build, analyze, test, deploy"/>
+	<target name="all" depends="init, build, analyze, test, chess, deploy"/>
 	
 	<!-- ============================================================ 
 		Target to initialise properties used by all targets
@@ -28,9 +32,17 @@
     <property name="testOutputAssemblyName" value="Concurrency.Tests.dll"/>
     <property name="testOutputAssembly" value="${testOutputDir}\${testOutputAssemblyName}"/>
 
+    <property name="chessTestOutputDir" value=".\Concurrency.Chess\bin\${config}"/>
+    <property name="chessTestOutputAssemblyName" value="Concurrency.Chess.dll"/>
+    <property name="chessTestOutputAssembly" value="${chessTestOutputDir}\${chessTestOutputAssemblyName}"/>
+
+
     <property name="deploymentPackageName" value="Concurrency"/>
 
-    <property name="toolsHome" value="..\BuildTools"/> <!-- Relative path to tools directory -->    
+    <!-- 
+      Relative path to tools directory i.e. the local copy of https://github.com/LeeSanderson/BuildTools/
+    -->
+    <property name="toolsHome" value="..\BuildTools"/> 
 
     <property name="coverageFilter" value="+[Concurrency]*"/> <!-- Opencover filter to specify code to be analysed -->
 
@@ -54,6 +66,18 @@
     <property name="opencoverCmd" value=".${toolsHome}\OpenCover.4.0.301\OpenCover.Console.exe"/>
     <property name="nunitCmd" value="${toolsHome}\NUnit-2.6.0.12051\bin\nunit-console.exe"/>
     <property name="reportGeneratorCmd" value="${toolsHome}\ReportGenerator.1.4.1.0\ReportGenerator.exe"/>
+
+    <property name="chessHome" value="${toolsHome}\Chess"/>
+    <property name="mcutCmd" value="${chessHome}\mcut.exe"/>
+    <property name="extendedReflectionAssembly" value="${chessHome}\Microsoft.ExtendedReflection.dll"/>
+    <property name="extendedReflectionProfiler" value="${toolsHome}\Chess\Microsoft.ExtendedReflection.ClrMonitor.X86.dll"/>
+
+    <!-- Read registry to find SDK dir for gacutil etc.-->
+    <readregistry
+          property="WindowsSdkDir"
+          key="SOFTWARE\Microsoft\Microsoft SDKs\Windows\v7.0A\InstallationFolder"
+          hive="LocalMachine"
+          failonerror="true" />
   </target>
 	
 	<!-- ============================================================ 
@@ -134,6 +158,47 @@
 
 
   </target>
+
+
+  <!-- ============================================================ 
+		Target to run concurrency tests using CHESS.
+	============================================================ -->
+  <target name="chess" depends="build">
+
+    <mkdir dir="${testResultsDir}" unless="${directory::exists(testResultsDir)}"/>
+
+    <!-- Tidy up prior to run -->
+    <property name="chessSessionTemp" value=".\session.tmp"/>
+    <property name="chessResults" value=".\allResults.xml"/>
+    <delete file="${chessResults}" if="${file::exists(chessResults)}"/>
+    <delete dir="${chessSessionTemp}" includeemptydirs="true" if="${directory::exists(chessSessionTemp)}"/>
+
+
+    <!-- Register concurrency test tool components (see ${toolsHome}\Chess\registerer.cmd) -->
+    <exec program="${WindowsSdkDir}\bin\gacutil.exe">
+      <arg value="/i"/>
+      <arg value="${extendedReflectionAssembly}"/>
+    </exec>
+
+    <exec program="${environment::get-folder-path('System')}\RegSvr32"
+          workingdir="${chessHome}">
+      <arg value="/s"/>
+      <arg value="Microsoft.ExtendedReflection.ClrMonitor.X86.dll"/>
+    </exec>
+
+    <!-- Run concurrency test tool -->
+    <exec program="${mcutCmd}">
+      <arg value="runAllTests"/>
+      <arg value="${chessTestOutputAssembly}"/>
+    </exec>
+
+    <!-- Tidy up if successful-->
+    <move todir="${testResultsDir}" file="allResults.xml" />
+    <delete dir="${chessSessionTemp}" includeemptydirs="true" if="${directory::exists(chessSessionTemp)}"/>
+    
+  </target>
+
+
 
   <!-- ============================================================ 
 		Target to generate deployment components
