@@ -1,16 +1,12 @@
-﻿<?xml version="1.0"?>
+<?xml version="1.0"?>
 
 <project name="Concurrency" default="all" basedir=".">
 
 	<!-- ============================================================ 
 		Build script for the Concurrency solution.
-    
-    NOTE: This script relies on build tools that can be found here:
-    https://github.com/LeeSanderson/BuildTools/
-    (see the toolsHome property in the "init" target below for more info)
-	============================================================ -->
+    	============================================================ -->
 	
-	<target name="all" depends="init, build, analyze, test, chess, deploy"/>
+	<target name="all" depends="init, build, test, chess"/>
 	
 	<!-- ============================================================ 
 		Target to initialise properties used by all targets
@@ -24,6 +20,7 @@
       should be sufficient to get the build working.
     -->
     <property name="solutionFile" value="Concurrency.sln"/>
+    
     <property name="outputDir" value=".\Concurrency\bin\${config}"/>
     <property name="outputAssemblyName" value="Concurrency.dll"/>
     <property name="outputAssembly" value="${outputDir}\${outputAssemblyName}"/>
@@ -32,7 +29,7 @@
     <property name="testOutputAssemblyName" value="Concurrency.Tests.dll"/>
     <property name="testOutputAssembly" value="${testOutputDir}\${testOutputAssemblyName}"/>
 
-    <property name="chessTestOutputDir" value=".\Concurrency.Chess\bin\${config}"/>
+    <property name="chessTestOutputDir" value="${path::get-full-path('.\Concurrency.Chess\bin\' + config)}"/>
     <property name="chessTestOutputAssemblyName" value="Concurrency.Chess.dll"/>
     <property name="chessTestOutputAssembly" value="${chessTestOutputDir}\${chessTestOutputAssemblyName}"/>
 
@@ -40,9 +37,9 @@
     <property name="deploymentPackageName" value="Concurrency"/>
 
     <!-- 
-      Relative path to tools directory i.e. the local copy of https://github.com/LeeSanderson/BuildTools/
+      Relative path to tools directory
     -->
-    <property name="toolsHome" value="..\BuildTools"/> 
+    <property name="toolsHome" value=".\packages"/> 
 
     <property name="coverageFilter" value="+[Concurrency]*"/> <!-- Opencover filter to specify code to be analysed -->
 
@@ -54,30 +51,35 @@
     <property name="deployDir" value=".\Deploy"/>
 
     <property name="msbuildCmd" value="${framework::get-framework-directory('net-4.0')}/msbuild.exe"/>
-    
-    <property name="staticAnalysisHome" value="${toolsHome}\StaticAnalysisTools"/>
-    <!-- 
-      FailMinimumRecommendedRules.ruleset is a copy of MinimumRecommendedRules.ruleset with all rules set
-      to Error rather than Warning (so that any analysis failure causes a build failure).
-    -->
-    <property name="fxcopRules" value="${staticAnalysisHome}\Rule Sets\FailMinimumRecommendedRules.ruleset"/>
-    <property name="fxcopCmd" value="${staticAnalysisHome}\FxCop\FxCopCmd.exe"/>    
-    
-    <property name="opencoverCmd" value=".${toolsHome}\OpenCover.4.0.301\OpenCover.Console.exe"/>
-    <property name="nunitCmd" value="${toolsHome}\NUnit-2.6.0.12051\bin\nunit-console.exe"/>
-    <property name="reportGeneratorCmd" value="${toolsHome}\ReportGenerator.1.4.1.0\ReportGenerator.exe"/>
+        
+    <property name="opencoverCmd" value="${toolsHome}\OpenCover.4.6.519\tools\OpenCover.Console.exe"/>
+    <property name="nunitCmd" value="${toolsHome}\NUnit.ConsoleRunner.3.4.1\tools\nunit3-console.exe"/>
+    <property name="reportGeneratorCmd" value="${toolsHome}\ReportGenerator.2.4.4.0\tools\ReportGenerator.exe"/>
 
-    <property name="chessHome" value="${toolsHome}\Chess"/>
+    <property name="chessHome" value="${path::get-full-path(toolsHome + '\Chess.1.0.1\tools')}"/>
     <property name="mcutCmd" value="${chessHome}\mcut.exe"/>
-    <property name="extendedReflectionAssembly" value="${chessHome}\Microsoft.ExtendedReflection.dll"/>
-    <property name="extendedReflectionProfiler" value="${toolsHome}\Chess\Microsoft.ExtendedReflection.ClrMonitor.X86.dll"/>
+    <property name="expectedChessCLRProfilerPath" value="${chessHome}\Microsoft.ExtendedReflection.ClrMonitor.X86.dll"/>
 
-    <!-- Read registry to find SDK dir for gacutil etc.-->
-    <readregistry
-          property="WindowsSdkDir"
-          key="SOFTWARE\Microsoft\Microsoft SDKs\Windows\v7.0A\InstallationFolder"
-          hive="LocalMachine"
-          failonerror="true" />
+    <!--
+      Check Chess CLR profiler is installed 
+     -->
+    <readregistry property="actualChessCLRProfilerPath" key="SOFTWARE\WOW6432Node\Classes\CLSID\{56F9B43A-2FDE-475F-A4B6-839903483980}\InprocServer32\" failonerror="false"/>
+    <fail unless="${property::exists('actualChessCLRProfilerPath')}">
+      Unable to find CHESS CLR profiler (Microsoft.ExtendedReflection.ClrMonitor.X86.dll) in the registry. 
+      Please check that the profiler is installed and if necessary run the regClrMonitor.bat command from the
+      ${chessHome} directory (from an administrative command prompt).
+    </fail>
+
+    <fail if="${expectedChessCLRProfilerPath != actualChessCLRProfilerPath}">
+      Unexpected path for CHESS CLR profiler (Microsoft.ExtendedReflection.ClrMonitor.X86.dll) in the registry. 
+      
+      Expected: ${expectedChessCLRProfilerPath}
+      Actual: ${actualChessCLRProfilerPath}
+      
+      Please check that the profiler is installed and if necessary run the regClrMonitor.bat command from the
+      ${chessHome} directory (from an administrative command prompt).
+    </fail>
+
   </target>
 	
 	<!-- ============================================================ 
@@ -96,24 +98,6 @@
   </target>
 
   <!-- ============================================================ 
-		Target to run static analysis on compiled code.
-	============================================================ -->
-  <target name="analyze" depends="build">
-
-    <mkdir dir="${testResultsDir}" unless="${directory::exists(testResultsDir)}"/>
-
-    <exec program="${fxcopCmd}">
-      <arg value="/console"/>
-      <arg value='/ruleset:="${fxcopRules}"'/>
-      <arg value="/out:${testResultsDir}\StaticAnalysisResults.html"/>
-      <arg value="/applyoutxsl"/>
-      <arg value="/forceoutput"/>
-      <arg value="/file=${outputAssembly}"/>
-    </exec>
-
-  </target>
-
-  <!-- ============================================================ 
 		Target to run tests and generate coverage reports.
 	============================================================ -->
   <target name="test" depends="build">
@@ -124,10 +108,10 @@
     <!-- Run coverage tool -->
     <exec program="${opencoverCmd}">
       <arg value="-target:${nunitCmd}"/>
-      <arg value='-targetargs:"/nologo /noshadow ${testOutputAssemblyName}"'/>
+      <arg value='-targetargs:"${testOutputAssemblyName}"'/>
       <arg value='-targetdir:"${testOutputDir}"'/>
       <arg value="-log:All"/>
-      <arg value="-register"/>
+      <arg value="-register:user"/>
       <arg value='-filter:"${coverageFilter}"'/>
       <arg value="-output:${testResultsDir}\CoverageResults.xml"/>
     </exec>
@@ -141,7 +125,7 @@
 
     <!-- Check for any test failures -->
     <xmlpeek file="${testOutputDir}\TestResult.xml"
-             xpath="//test-results/@failures"
+             xpath="//test-run/@failed"
              property="test.NumFailures" />
     <fail if="${int::parse(test.NumFailures) &gt; 0}" message="${test.NumFailures} unit tests failed!!!"/>
 
@@ -173,19 +157,6 @@
     <delete file="${chessResults}" if="${file::exists(chessResults)}"/>
     <delete dir="${chessSessionTemp}" includeemptydirs="true" if="${directory::exists(chessSessionTemp)}"/>
 
-
-    <!-- Register concurrency test tool components (see ${toolsHome}\Chess\registerer.cmd) -->
-    <exec program="${WindowsSdkDir}\bin\gacutil.exe">
-      <arg value="/i"/>
-      <arg value="${extendedReflectionAssembly}"/>
-    </exec>
-
-    <exec program="${environment::get-folder-path('System')}\RegSvr32"
-          workingdir="${chessHome}">
-      <arg value="/s"/>
-      <arg value="Microsoft.ExtendedReflection.ClrMonitor.X86.dll"/>
-    </exec>
-
     <!-- Run concurrency test tool -->
     <exec program="${mcutCmd}">
       <arg value="runAllTests"/>
@@ -196,36 +167,6 @@
     <move todir="${testResultsDir}" file="allResults.xml" />
     <delete dir="${chessSessionTemp}" includeemptydirs="true" if="${directory::exists(chessSessionTemp)}"/>
     
-  </target>
-
-
-
-  <!-- ============================================================ 
-		Target to generate deployment components
-	============================================================ -->
-  <target name="deploy" depends="build">
-
-    <!-- Delete and re-create deployment directory -->
-    <delete dir="${deployDir}" includeemptydirs="true" if="${directory::exists(deployDir)}"/>
-    <mkdir dir="${deployDir}"/>
-
-    <!-- Deploy the taskexec console application and supporting files -->
-    <copy todir="${deployDir}\${deploymentPackageName}">
-      <fileset basedir="${outputDir}" >
-        <include name="*.dll" />
-        <include name="*.exe" />
-        <include name="*.pdb" />
-      </fileset>
-    </copy>
-
-
-    <!-- Zip all the files -->
-    <zip zipfile=".${deployDir}\${deploymentPackageName}.zip"  includeemptydirs="true" >
-      <fileset basedir="${deployDir}\${deploymentPackageName}">
-        <include name="**/*"/>
-      </fileset>
-    </zip>
-
   </target>
 
 </project>
